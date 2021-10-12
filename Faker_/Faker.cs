@@ -19,20 +19,33 @@ namespace Faker_
             {typeof(float), new FloatGenerator()},
             {typeof(double), new DoubleGenerator()},
             {typeof(bool), new BoolGenerator()},
-            {typeof(DateTime), LoadPlugin("E:/Univer/5sem/spp/Faker/Faker/DateGenerator/bin/Debug/net6.0/DateGenerator.dll", typeof(DateTime))},
-            {typeof(string), LoadPlugin("E:/Univer/5sem/spp/Faker/Faker/StringGenerator/bin/Debug/net6.0/StringGenerator.dll", typeof(string))},
+            {
+                typeof(DateTime),
+                LoadPlugin("E:/Univer/5sem/spp/Faker/Faker/DateGenerator/bin/Debug/net6.0/DateGenerator.dll",
+                    typeof(DateTime))
+            },
+            {
+                typeof(string),
+                LoadPlugin("E:/Univer/5sem/spp/Faker/Faker/StringGenerator/bin/Debug/net6.0/StringGenerator.dll",
+                    typeof(string))
+            },
         };
 
         private HashSet<Type> dtoTypes = new HashSet<Type>
         {
-            typeof(A), typeof(B), typeof(C), typeof(TestDto), 
+            typeof(A), typeof(B), typeof(C), typeof(TestDto),
             typeof(AnotherTestDto), typeof(DtoWithConstructorWithoutDefaultConstructor)
-        }; 
-        
+        };
+
         private Dictionary<Type, object> activeDto = new Dictionary<Type, object>();
 
-        private Stack<Type> usedTypes = new Stack<Type>();
-        
+        private FakerConfig fakerConfig;
+       
+        public Faker(FakerConfig fakerConfig)
+        {
+            this.fakerConfig = fakerConfig;
+        }
+
         private static IGenerator LoadPlugin(string path, Type generatorType)
         {
             Assembly assembly = Assembly.LoadFrom(path);
@@ -80,8 +93,10 @@ namespace Faker_
                         list[i] = Create(listValueType);
                     }
                 }
+
                 result = list;
             }
+
             return result;
         }
 
@@ -99,21 +114,40 @@ namespace Faker_
                 activeDto[type] = instance;
                 CreateProperties(type, instance);
                 CreateFields(type, instance);
+                foreach (var memberInfo in type.GetMembers())
+                {
+                    foreach (var pair in fakerConfig.CustomGenerators)
+                    {
+                        if (pair.Key.Name.ToLower().Equals(memberInfo.Name.ToLower()))
+                        {
+                            var generateValue = pair.Value.generateValue();
+                            if ((memberInfo.MemberType & MemberTypes.Field) != 0)
+                            {
+                                ((FieldInfo)memberInfo).SetValue(instance, generateValue);
+                            } 
+                            else if ((memberInfo.MemberType & MemberTypes.Property) != 0)
+                            {
+                                ((PropertyInfo)memberInfo).SetValue(instance, generateValue);    
+                            }
+                        }
+                    }
+                }
                 result = instance;
             }
             else
             {
                 result = activeDto[type];
             }
+
             activeDto[type] = null;
-            
+
             return result;
         }
 
         private object CreateInstance(Type type)
         {
             ConstructorInfo[] publicConstructors = type.GetConstructors(BindingFlags.Public
-                                                        | BindingFlags.Instance);
+                                                                        | BindingFlags.Instance);
             ConstructorInfo constructorInfo;
             if (publicConstructors.Length == 0)
             {
@@ -123,6 +157,7 @@ namespace Faker_
             {
                 constructorInfo = publicConstructors[0];
             }
+
             ParameterInfo[] constructorParametersInfo = constructorInfo.GetParameters();
             var length = constructorParametersInfo.Length;
             var parameters = new object[length];
@@ -164,23 +199,6 @@ namespace Faker_
             Type type = typeof(T);
             return (T) Create(type);
         }
-        
-        // Example usage: ToSetter<MyEntity, string>(c => c.FirstName)
-        public static Action<TEntity, TResult> ToSetter<TEntity, TResult>(Expression<Func<TEntity, TResult>> expr)
-        {
-            // This will be `c.FirstName`
-            var memberExpression = (MemberExpression)expr.Body;
-            // This will be `c`
-            var instanceParameter = (ParameterExpression)memberExpression.Expression;
-            // New parameter for passing value named `value`
-            var valueParameter = Expression.Parameter(typeof(TResult), "value");
-
-            // Construct `(c, value) => c.FirstName = value`
-            return Expression.Lambda<Action<TEntity, TResult>>(
-                Expression.Assign(memberExpression, valueParameter), // c.FirstName = value
-                instanceParameter, // c
-                valueParameter // value
-            ).Compile();        
-        }
     }
 }
+
